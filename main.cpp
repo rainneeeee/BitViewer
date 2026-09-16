@@ -1,9 +1,9 @@
 /*
-    build with -DTYPE
-    example:
-        g++ -c -std=c++20 -DINT32_T main.cpp
-
-    types = {INT16_T, INT32_T, INT64_T, FLOAT_T, DOUBLE_T, default=INT8_T}
+    - build with -DTYPE (define TYPE)
+        example:
+            g++ -c -std=c++20 -DINT32_T main.cpp
+    - will use int8_t by default (without defining TYPE)
+    - types = {INT16_T, INT32_T, INT64_T, FLOAT_T, DOUBLE_T}
 */
 
 #include <iostream>
@@ -21,9 +21,10 @@
 
 #include <cstdlib>
 #include <cstdint>
+#include <cmath>
 
 using namespace std::string_literals;
-using byte = uint8_t;
+using byte_t = uint8_t;
 
 #if !defined(SET_TYPE)
     #define SET_TYPE(t, id)         \
@@ -41,7 +42,7 @@ using byte = uint8_t;
     #elif defined(DOUBLE_T)
         SET_TYPE(double, "double-precision"s)
     #else
-        #define NO_TYPE
+        #define DEFAULT_TYPE
     #endif
 #endif
 
@@ -50,63 +51,69 @@ auto ignore_newl_from_cin(void) -> void
     std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
 }
 
-auto check_cin_failure(const std::string& error_msg) -> void
+template <typename T>
+auto check_cin_failure(void) -> void
 {
+    static_assert(std::is_arithmetic_v<T>, "Template must be an arithmetic type!");
+
     if (std::cin.fail()) {
         std::cin.clear();
         ignore_newl_from_cin();
-        throw std::runtime_error(error_msg);
+
+        auto oss = std::ostringstream{};
+        oss << "Expected an element of [";
+        oss << +std::numeric_limits<T>::lowest() << ", ";
+        oss << +std::numeric_limits<T>::max() << "].";
+
+        throw std::runtime_error(oss.str());
     }
 }
 
-auto byte_to_bitstring(byte b) -> std::string
+auto byte_to_bitstring(byte_t b) -> std::string
 {
-    auto oss = std::ostringstream{};
-    constexpr auto BYTE_MSB = byte{128};
+    auto bit_stream = std::ostringstream{};
+    constexpr auto BYTE_MSB = byte_t{128U};
 
     for (int i = 0; i < 8; ++i) {
-        oss << ((b & BYTE_MSB) != 0);
+        bit_stream << ((b & BYTE_MSB) != 0U);
         b <<= 1;
     }
 
-    return oss.str();
+    return bit_stream.str();
 }
 
 template <typename N>
-union number_wrapper {
+union base10_number_wrapper {
     N data;
     struct {
-        std::array<byte, sizeof(N)> block;
+        std::array<byte_t, sizeof(N)> byte_array;
 
-        auto to_string(int base = 2) -> std::string
+        auto to_string(int radix = 2) -> std::string
         {
-            auto oss = std::ostringstream{};
+            auto byte_stream = std::ostringstream{};
 
-            std::for_each(block.rbegin(), block.rend(), [=, &oss](byte b) -> void {
-                switch (base) {
+            std::for_each(byte_array.rbegin(), byte_array.rend(), [=, &byte_stream](byte_t b) -> void {
+                switch (radix) {
                     case 16 : {
-                        oss.width(2);
-                        oss.fill('0');
-                        oss << std::hex << static_cast<int>(b) << ' ';
-                    } break;
-                    case 10 : {
-                        oss << std::dec << static_cast<int>(b) << ' ';
+                        byte_stream.width(2);
+                        byte_stream.fill('0');
+                        byte_stream << std::hex << static_cast<int>(b) << ' ';
                     } break;
                     case 8 : {
-                        oss.width(3);
-                        oss.fill('0');
-                        oss << std::oct << static_cast<int>(b) << ' ';
+                        byte_stream.width(3);
+                        byte_stream.fill('0');
+                        byte_stream << std::oct << static_cast<int>(b) << ' ';
                     } break;
                     case 2 : {
-                        oss << byte_to_bitstring(b) << ' ';
+                        byte_stream << byte_to_bitstring(b) << ' ';
                     } break;
                     default : {
-                        throw std::invalid_argument("Expected an element of {2, 8, 10, 16}.");
+                        throw std::invalid_argument("Expected an element of {2, 8, 16}.");
                     };
                 }
             });
 
-            return oss.str();
+            return byte_stream.str();
         }
     } bytes;
 };
@@ -117,36 +124,41 @@ auto main(void) -> int
         std::clog << "[WARNING] Program running in DEBUG mode.\n";
     #endif
 
-    #ifdef NO_TYPE
+    #ifdef DEFAULT_TYPE
         typedef int8_t TYPE;
         auto TYPEID = "8-bit"s;
     #endif
 
     try {
-        std::cout << TYPEID << " number: ";
-        auto n_buffer = TYPE{};
+        std::cout << TYPEID << " base10 number: ";
+        auto temp_base10_n = TYPE{};
         if constexpr (std::is_same_v<TYPE, int8_t>) {
-            int16_t int_buffer{};
-            std::cin >> int_buffer;
-            n_buffer = static_cast<TYPE>(int_buffer);
+            int16_t expanded_buffer{};
+            std::cin >> expanded_buffer;
+
+            if (expanded_buffer > INT8_MAX || expanded_buffer < INT8_MIN) {
+                std::cin.setstate(std::ios_base::failbit);
+            }
+
+            temp_base10_n = static_cast<int8_t>(expanded_buffer);
         } else {
-            std::cin >> n_buffer;
+            std::cin >> temp_base10_n;
         }
 
-        check_cin_failure("Input must be a number."s);
+        check_cin_failure<TYPE>();
         ignore_newl_from_cin();
 
-        std::cout << "base: ";
-        auto base_buffer = int{};
-        std::cin >> base_buffer;
+        std::cout << "radix: ";
+        auto temp_radix = int{};
+        std::cin >> temp_radix;
 
-        check_cin_failure("Expected an element of [-2^(31), 2^(31)-1]."s);
+        check_cin_failure<int>();
         ignore_newl_from_cin();
 
-        number_wrapper<TYPE> n;
-        n.data = static_cast<TYPE>(n_buffer);
+        base10_number_wrapper<TYPE> base10_n;
+        base10_n.data = temp_base10_n;
 
-        std::cout << n.bytes.to_string(base_buffer) << '\n';
+        std::cout << base10_n.bytes.to_string(temp_radix) << '\n';
     } catch (const std::exception& e) {
         std::cerr << e.what() << '\n';
     }
