@@ -1,0 +1,4 @@
+.vscode/*
+release.bat
+main.o
+out.exe
