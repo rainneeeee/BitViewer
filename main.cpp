@@ -21,22 +21,21 @@
 
 #include <cstdlib>
 #include <cstdint>
-#include <cmath>
 
 using namespace std::string_literals;
 using byte_t = uint8_t;
 
-#if !defined(SET_TYPE)
-    #define SET_TYPE(t, id)         \
-        typedef t TYPE;             \
+#ifndef SET_TYPE
+    #define SET_TYPE(t, id)     \
+        typedef t TYPE;         \
         auto TYPEID = id;
 
     #ifdef INT16_T
-        SET_TYPE(int16_t, "16-bit"s)
+        SET_TYPE(int16_t, "16-bit")
     #elif defined(INT32_T)
-        SET_TYPE(int32_t, "32-bit"s)
+        SET_TYPE(int32_t, "32-bit")
     #elif defined(INT64_T)
-        SET_TYPE(int64_t, "64-bit"s)
+        SET_TYPE(int64_t, "64-bit")
     #elif defined(FLOAT_T)
         SET_TYPE(float, "single-precision"s)
     #elif defined(DOUBLE_T)
@@ -60,12 +59,16 @@ auto check_cin_failure(void) -> void
         std::cin.clear();
         ignore_newl_from_cin();
 
-        auto oss = std::ostringstream{};
-        oss << "Expected an element of [";
-        oss << +std::numeric_limits<T>::lowest() << ", ";
-        oss << +std::numeric_limits<T>::max() << "].";
+        auto error_stream = std::ostringstream{};
+        error_stream << "Expected an element of [";
+        /*
+            - adding '+' prefix to fix int8_t printing issue in lowest() and max()
+            - issue: printing ASCII characters when TYPE is int8_t
+        */
+        error_stream << +std::numeric_limits<T>::lowest() << ", ";
+        error_stream << +std::numeric_limits<T>::max() << "].";
 
-        throw std::runtime_error(oss.str());
+        throw std::runtime_error(error_stream.str());
     }
 }
 
@@ -74,6 +77,10 @@ auto byte_to_bitstring(byte_t b) -> std::string
     auto bit_stream = std::ostringstream{};
     constexpr auto BYTE_MSB = byte_t{128U};
 
+    /*
+        - convert byte to binary by reading bits from MSB to LSB
+        - starting with MSB to convert from little-endian to big-endian format
+    */
     for (int i = 0; i < 8; ++i) {
         bit_stream << ((b & BYTE_MSB) != 0U);
         b <<= 1;
@@ -92,6 +99,7 @@ union base10_number_wrapper {
         {
             auto byte_stream = std::ostringstream{};
 
+            // convert bytes to the target radix format
             std::for_each(byte_array.rbegin(), byte_array.rend(), [=, &byte_stream](byte_t b) -> void {
                 switch (radix) {
                     case 16 : {
@@ -121,7 +129,7 @@ union base10_number_wrapper {
 auto main(void) -> int
 {
     #ifdef DEBUG
-        std::clog << "[WARNING] Program running in DEBUG mode.\n";
+        std::clog << "\n[WARNING] Program running in DEBUG mode.\n\n";
     #endif
 
     #ifdef DEFAULT_TYPE
@@ -133,6 +141,7 @@ auto main(void) -> int
         std::cout << TYPEID << " base10 number: ";
         auto temp_base10_n = TYPE{};
         if constexpr (std::is_same_v<TYPE, int8_t>) {
+            // had to do this because int8_t is being treated as a char type
             int16_t expanded_buffer{};
             std::cin >> expanded_buffer;
 
@@ -159,8 +168,12 @@ auto main(void) -> int
         base10_n.data = temp_base10_n;
 
         std::cout << base10_n.bytes.to_string(temp_radix) << '\n';
+        if constexpr (std::is_integral_v<TYPE>) {
+            auto base10_n_unsigned = static_cast<std::make_unsigned_t<TYPE>>(base10_n.data);
+            std::cout << "unsigned representation: " << base10_n_unsigned << '\n';
+        }
     } catch (const std::exception& e) {
-        std::cerr << e.what() << '\n';
+        std::cerr << '\n' << e.what() << '\n';
     }
 
     return EXIT_SUCCESS;
